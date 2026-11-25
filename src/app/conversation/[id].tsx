@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { Message } from '../../types';
 import { MessageBubble } from '../../components/MessageBubble';
 import { Avatar } from '../../components/Avatar';
 import { AppleComposer } from '../../components/AppleComposer';
+import { AppleTypingIndicator } from '../../components/AppleTypingIndicator';
 import { AppleColors, AppleTypography, AppleSpacing } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -32,7 +33,15 @@ export default function ConversationScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { conversations, getContactById, getConversationMessages, sendMessage } = useMessages();
+  const {
+    conversations,
+    getContactById,
+    getConversationMessages,
+    sendMessage,
+    markConversationAsRead,
+    activeTypingConvId,
+    onMessagesChange,
+  } = useMessages();
 
   const conversation = conversations.find((c) => c.id === id);
   const participant = conversation?.participantIds[0]
@@ -46,16 +55,32 @@ export default function ConversationScreen() {
   const initials = participant?.initials || title.substring(0, 2).toUpperCase();
   const avatarColor = participant?.color || AppleColors.avatarColors[0];
 
-  const loadMessages = async () => {
+  const isContactTyping = activeTypingConvId === id;
+
+  const loadMessages = useCallback(async () => {
     if (id) {
       const msgs = await getConversationMessages(id);
       setMessages(msgs);
     }
-  };
+  }, [id, getConversationMessages]);
 
   useEffect(() => {
     loadMessages();
-  }, [id]);
+    if (id) {
+      markConversationAsRead(id);
+    }
+
+    // Subscribe to reactive message stream events (status updates, new replies)
+    const unsubscribe = onMessagesChange((changedConvId) => {
+      if (changedConvId === id) {
+        loadMessages();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [id, loadMessages, markConversationAsRead, onMessagesChange]);
 
   const handleSendMessage = async (text: string) => {
     if (!id) return;
@@ -63,7 +88,7 @@ export default function ConversationScreen() {
     await loadMessages();
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    }, 120);
   };
 
   // Group messages with timestamps and grouping flags
@@ -90,7 +115,7 @@ export default function ConversationScreen() {
     const prev = i > 0 ? messages[i - 1] : null;
     const next = i < messages.length - 1 ? messages[i + 1] : null;
 
-    // Check if we should insert date separator (if > 1 hour difference or first)
+    // Insert date separator if first message or gap > 60 minutes
     if (i === 0 || current.timestamp - lastTimestamp > 60 * 60 * 1000) {
       groupItems.push({
         type: 'date',
@@ -99,9 +124,11 @@ export default function ConversationScreen() {
       lastTimestamp = current.timestamp;
     }
 
-    const isFirstInGroup = !prev || prev.senderId !== current.senderId || current.timestamp - prev.timestamp > 5 * 60 * 1000;
-    const isLastInGroup = !next || next.senderId !== current.senderId || next.timestamp - current.timestamp > 5 * 60 * 1000;
-    const showStatus = i === messages.length - 1; // show status on very last message
+    const isFirstInGroup =
+      !prev || prev.senderId !== current.senderId || current.timestamp - prev.timestamp > 5 * 60 * 1000;
+    const isLastInGroup =
+      !next || next.senderId !== current.senderId || next.timestamp - current.timestamp > 5 * 60 * 1000;
+    const showStatus = i === messages.length - 1;
 
     groupItems.push({
       type: 'message',
@@ -211,7 +238,15 @@ export default function ConversationScreen() {
           }
           return null;
         }}
+        ListFooterComponent={() => (
+          <View>
+            {isContactTyping && <AppleTypingIndicator />}
+          </View>
+        )}
         contentContainerStyle={styles.messagesList}
+        onContentSizeChange={() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }}
       />
 
       {/* iOS Composer */}

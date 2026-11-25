@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  KeyboardAvoidingView,
   useColorScheme,
   Platform,
 } from 'react-native';
@@ -93,6 +94,9 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
           }
           multiline
           maxLength={1000}
+          enablesReturnKeyAutomatically
+          returnKeyType="default"
+          blurOnSubmit={false}
         />
 
         {/* Audio / Dictation Icon when empty */}
