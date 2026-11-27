@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { Contact, Conversation, Message, MessageStatus } from '../types';
+import { Contact, Conversation, Message, MessageReactionType, MessageStatus } from '../types';
 import { storageService } from '../services/storage';
 
 interface MessagesContextType {
@@ -9,7 +9,18 @@ interface MessagesContextType {
   activeTypingConvId: string | null;
   getContactById: (id: string) => Contact | undefined;
   getConversationMessages: (convId: string) => Promise<Message[]>;
-  sendMessage: (convId: string, text: string, options?: { simulateReply?: boolean }) => Promise<void>;
+  sendMessage: (
+    convId: string,
+    text: string,
+    options?: {
+      simulateReply?: boolean;
+      replyToMessageId?: string;
+      replyToPreview?: { text: string; senderName: string };
+    }
+  ) => Promise<void>;
+  editMessage: (convId: string, messageId: string, newText: string) => Promise<void>;
+  deleteMessage: (convId: string, messageId: string) => Promise<void>;
+  toggleReaction: (convId: string, messageId: string, type: MessageReactionType) => Promise<void>;
   markConversationAsRead: (convId: string) => Promise<void>;
   refresh: () => Promise<void>;
   resetData: () => Promise<void>;
@@ -18,7 +29,6 @@ interface MessagesContextType {
 
 const MessagesContext = createContext<MessagesContextType | undefined>(undefined);
 
-// Realistic auto-reply canned responses matching Apple keynote / engineering tones
 const SIMULATED_RESPONSES = [
   'Sounds great! The team is reviewing the latest build right now.',
   'Thanks for the update. Let’s make sure we test this on both iOS and Android before shipping.',
@@ -80,11 +90,14 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const sendMessage = async (
     convId: string,
     text: string,
-    options: { simulateReply?: boolean } = { simulateReply: true }
+    options: {
+      simulateReply?: boolean;
+      replyToMessageId?: string;
+      replyToPreview?: { text: string; senderName: string };
+    } = { simulateReply: true }
   ) => {
     const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
     
-    // Step 1: Immediately save message with 'sending' status
     const initialMessage: Message = {
       id: messageId,
       conversationId: convId,
@@ -93,14 +106,16 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       timestamp: Date.now(),
       status: 'sending',
       isIncoming: false,
+      replyToMessageId: options.replyToMessageId,
+      replyToPreview: options.replyToPreview,
     };
 
     await storageService.saveMessage(convId, initialMessage);
-    let updatedConvs = await storageService.getConversations();
+    const updatedConvs = await storageService.getConversations();
     setConversations(updatedConvs);
     notifyListeners(convId);
 
-    // Step 2: Transition to 'delivered' status after realistic network delay (600ms)
+    // Step 2: Transition to 'delivered' status after 600ms
     setTimeout(async () => {
       await storageService.updateMessageStatus(convId, messageId, 'delivered');
       notifyListeners(convId);
@@ -116,7 +131,6 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setActiveTypingConvId(convId);
             notifyListeners(convId);
 
-            // Wait 2 seconds while contact is typing
             setTimeout(async () => {
               setActiveTypingConvId(null);
               const targetConv = (await storageService.getConversations()).find((c) => c.id === convId);
@@ -146,6 +160,25 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }, 600);
   };
 
+  const editMessage = async (convId: string, messageId: string, newText: string) => {
+    await storageService.updateMessageText(convId, messageId, newText);
+    const updatedConvs = await storageService.getConversations();
+    setConversations(updatedConvs);
+    notifyListeners(convId);
+  };
+
+  const deleteMessage = async (convId: string, messageId: string) => {
+    await storageService.deleteMessage(convId, messageId);
+    const updatedConvs = await storageService.getConversations();
+    setConversations(updatedConvs);
+    notifyListeners(convId);
+  };
+
+  const toggleReaction = async (convId: string, messageId: string, type: MessageReactionType) => {
+    await storageService.toggleReaction(convId, messageId, 'me', type);
+    notifyListeners(convId);
+  };
+
   const resetData = async () => {
     await storageService.resetToSeed();
     await loadData();
@@ -161,6 +194,9 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         getContactById,
         getConversationMessages,
         sendMessage,
+        editMessage,
+        deleteMessage,
+        toggleReaction,
         markConversationAsRead,
         refresh: loadData,
         resetData,

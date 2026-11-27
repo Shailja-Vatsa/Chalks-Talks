@@ -8,14 +8,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useMessages } from '../../context/MessagesContext';
-import { Message } from '../../types';
+import { Message, MessageReactionType } from '../../types';
 import { MessageBubble } from '../../components/MessageBubble';
 import { Avatar } from '../../components/Avatar';
 import { AppleComposer } from '../../components/AppleComposer';
 import { AppleTypingIndicator } from '../../components/AppleTypingIndicator';
+import { AppleTapbackModal } from '../../components/AppleTapbackModal';
 import { AppleColors, AppleTypography, AppleSpacing } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -38,6 +40,9 @@ export default function ConversationScreen() {
     getContactById,
     getConversationMessages,
     sendMessage,
+    editMessage,
+    deleteMessage,
+    toggleReaction,
     markConversationAsRead,
     activeTypingConvId,
     onMessagesChange,
@@ -49,6 +54,10 @@ export default function ConversationScreen() {
     : undefined;
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [selectedMessageForAction, setSelectedMessageForAction] = useState<Message | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{ message: Message; senderName: string } | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+
   const flatListRef = useRef<FlatList>(null);
 
   const title = conversation?.title || participant?.fullName || 'Messages';
@@ -70,7 +79,6 @@ export default function ConversationScreen() {
       markConversationAsRead(id);
     }
 
-    // Subscribe to reactive message stream events (status updates, new replies)
     const unsubscribe = onMessagesChange((changedConvId) => {
       if (changedConvId === id) {
         loadMessages();
@@ -84,14 +92,65 @@ export default function ConversationScreen() {
 
   const handleSendMessage = async (text: string) => {
     if (!id) return;
-    await sendMessage(id, text);
+    const replyOptions = replyingTo
+      ? {
+          replyToMessageId: replyingTo.message.id,
+          replyToPreview: {
+            text: replyingTo.message.text,
+            senderName: replyingTo.senderName,
+          },
+        }
+      : undefined;
+
+    setReplyingTo(null);
+    await sendMessage(id, text, replyOptions);
     await loadMessages();
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 120);
   };
 
-  // Group messages with timestamps and grouping flags
+  const handleSelectReaction = async (type: MessageReactionType) => {
+    if (!id || !selectedMessageForAction) return;
+    await toggleReaction(id, selectedMessageForAction.id, type);
+    await loadMessages();
+  };
+
+  const handleCopyMessage = () => {
+    if (!selectedMessageForAction) return;
+    // Native Alert confirmation on both platforms
+    Alert.alert('Copied to Clipboard', `"${selectedMessageForAction.text}"`);
+  };
+
+  const handleReplyMessage = () => {
+    if (!selectedMessageForAction) return;
+    const senderName = selectedMessageForAction.isIncoming
+      ? participant?.firstName || 'Contact'
+      : 'You';
+    setReplyingTo({
+      message: selectedMessageForAction,
+      senderName,
+    });
+  };
+
+  const handleEditMessage = () => {
+    if (!selectedMessageForAction) return;
+    setEditingMessage(selectedMessageForAction);
+  };
+
+  const handleSaveEdit = async (newText: string) => {
+    if (!id || !editingMessage) return;
+    await editMessage(id, editingMessage.id, newText);
+    setEditingMessage(null);
+    await loadMessages();
+  };
+
+  const handleDeleteMessage = async () => {
+    if (!id || !selectedMessageForAction) return;
+    await deleteMessage(id, selectedMessageForAction.id);
+    await loadMessages();
+  };
+
   const formatSeparatorDate = (timestamp: number) => {
     const d = new Date(timestamp);
     const now = new Date();
@@ -115,7 +174,6 @@ export default function ConversationScreen() {
     const prev = i > 0 ? messages[i - 1] : null;
     const next = i < messages.length - 1 ? messages[i + 1] : null;
 
-    // Insert date separator if first message or gap > 60 minutes
     if (i === 0 || current.timestamp - lastTimestamp > 60 * 60 * 1000) {
       groupItems.push({
         type: 'date',
@@ -233,6 +291,7 @@ export default function ConversationScreen() {
                 isFirstInGroup={item.isFirstInGroup}
                 isLastInGroup={item.isLastInGroup}
                 showStatus={item.showStatus}
+                onLongPress={() => setSelectedMessageForAction(item.message!)}
               />
             );
           }
@@ -249,8 +308,27 @@ export default function ConversationScreen() {
         }}
       />
 
-      {/* iOS Composer */}
-      <AppleComposer onSendMessage={handleSendMessage} />
+      {/* Context Action & Tapback Modal */}
+      <AppleTapbackModal
+        visible={!!selectedMessageForAction}
+        message={selectedMessageForAction}
+        onClose={() => setSelectedMessageForAction(null)}
+        onSelectReaction={handleSelectReaction}
+        onCopy={handleCopyMessage}
+        onReply={handleReplyMessage}
+        onEdit={selectedMessageForAction?.senderId === 'me' ? handleEditMessage : undefined}
+        onDelete={handleDeleteMessage}
+      />
+
+      {/* iOS Composer supporting reply banner and edit mode */}
+      <AppleComposer
+        onSendMessage={handleSendMessage}
+        replyingTo={replyingTo}
+        onCancelReply={() => setReplyingTo(null)}
+        editingMessage={editingMessage}
+        onSaveEdit={handleSaveEdit}
+        onCancelEdit={() => setEditingMessage(null)}
+      />
     </KeyboardAvoidingView>
   );
 }

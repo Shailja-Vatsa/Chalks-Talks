@@ -31,11 +31,17 @@ export interface Message {
   isIncoming: boolean;
   reactions?: MessageReaction[];
   replyToMessageId?: string;
+  replyToPreview?: {
+    text: string;
+    senderName: string;
+  };
+  isEdited?: boolean;
+  editedAt?: number;
 }
 
 export interface Conversation {
   id: string;
-  title?: string; // custom title or fallback to participant name(s)
+  title?: string;
   participantIds: string[];
   isGroup: boolean;
   isPinned: boolean;

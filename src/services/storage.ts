@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Contact, Conversation, Message, MessageStatus } from '../types';
+import { Contact, Conversation, Message, MessageReactionType, MessageStatus } from '../types';
 import { MOCK_CONTACTS, MOCK_CONVERSATIONS, MOCK_MESSAGES } from '../data/mockData';
 
 const STORAGE_KEYS = {
@@ -117,11 +117,130 @@ class StorageService {
         });
       }
 
-      // Re-sort conversations descending by updatedAt
       convs.sort((a, b) => b.updatedAt - a.updatedAt);
       await AsyncStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(convs));
     } catch (e) {
       console.error('Failed to save message:', e);
+    }
+  }
+
+  async updateMessageText(conversationId: string, messageId: string, newText: string): Promise<void> {
+    try {
+      const data = await AsyncStorage.getItem(STORAGE_KEYS.MESSAGES);
+      const allMessages: Record<string, Message[]> = data ? JSON.parse(data) : {};
+      const convList = allMessages[conversationId];
+      if (!convList) return;
+
+      allMessages[conversationId] = convList.map((m) =>
+        m.id === messageId
+          ? {
+              ...m,
+              text: newText,
+              isEdited: true,
+              editedAt: Date.now(),
+            }
+          : m
+      );
+
+      await AsyncStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(allMessages));
+
+      // Also update last message if the edited message was the latest
+      const lastMsg = convList[convList.length - 1];
+      if (lastMsg && lastMsg.id === messageId) {
+        const convs = await this.getConversations();
+        const updatedConvs = convs.map((c) => {
+          if (c.id === conversationId && c.lastMessage) {
+            return {
+              ...c,
+              lastMessage: {
+                ...c.lastMessage,
+                text: newText,
+              },
+            };
+          }
+          return c;
+        });
+        await AsyncStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(updatedConvs));
+      }
+    } catch (e) {
+      console.error('Failed to edit message:', e);
+    }
+  }
+
+  async deleteMessage(conversationId: string, messageId: string): Promise<void> {
+    try {
+      const data = await AsyncStorage.getItem(STORAGE_KEYS.MESSAGES);
+      const allMessages: Record<string, Message[]> = data ? JSON.parse(data) : {};
+      const convList = allMessages[conversationId];
+      if (!convList) return;
+
+      const filtered = convList.filter((m) => m.id !== messageId);
+      allMessages[conversationId] = filtered;
+
+      await AsyncStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(allMessages));
+
+      // Update conversation preview if the deleted one was the last message
+      const convs = await this.getConversations();
+      const updatedConvs = convs.map((c) => {
+        if (c.id === conversationId) {
+          const newLast = filtered[filtered.length - 1];
+          return {
+            ...c,
+            lastMessage: newLast
+              ? {
+                  text: newLast.text,
+                  timestamp: newLast.timestamp,
+                  isIncoming: newLast.isIncoming,
+                  senderId: newLast.senderId,
+                }
+              : undefined,
+          };
+        }
+        return c;
+      });
+      await AsyncStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(updatedConvs));
+    } catch (e) {
+      console.error('Failed to delete message:', e);
+    }
+  }
+
+  async toggleReaction(
+    conversationId: string,
+    messageId: string,
+    userId: string,
+    type: MessageReactionType
+  ): Promise<void> {
+    try {
+      const data = await AsyncStorage.getItem(STORAGE_KEYS.MESSAGES);
+      const allMessages: Record<string, Message[]> = data ? JSON.parse(data) : {};
+      const convList = allMessages[conversationId];
+      if (!convList) return;
+
+      allMessages[conversationId] = convList.map((m) => {
+        if (m.id !== messageId) return m;
+
+        let reactions = m.reactions ? [...m.reactions] : [];
+        const existingIndex = reactions.findIndex((r) => r.userId === userId);
+
+        if (existingIndex >= 0) {
+          if (reactions[existingIndex].type === type) {
+            // Tap same reaction to remove it (toggle off)
+            reactions.splice(existingIndex, 1);
+          } else {
+            // Replace reaction with new type
+            reactions[existingIndex] = { userId, type, timestamp: Date.now() };
+          }
+        } else {
+          // Add new reaction
+          reactions.push({ userId, type, timestamp: Date.now() });
+        }
+
+        return { ...m, reactions };
+      });
+
+      await AsyncStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(allMessages));
+    } catch (e) {
+      console.error('Failed to toggle reaction:', e);
     }
   }
 

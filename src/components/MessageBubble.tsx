@@ -1,14 +1,16 @@
 import React from 'react';
-import { View, Text, StyleSheet, useColorScheme } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { Message } from '../types';
 import { AppleColors, AppleTypography, AppleRadii, AppleSpacing } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { triggerHaptic } from '../utils/haptics';
 
 interface MessageBubbleProps {
   message: Message;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
   showStatus?: boolean;
+  onLongPress?: () => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -16,6 +18,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   isFirstInGroup = true,
   isLastInGroup = true,
   showStatus = false,
+  onLongPress,
 }) => {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -33,7 +36,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     ? AppleColors.labelDark
     : AppleColors.labelLight;
 
-  // Authentic iOS iMessage Corner Radii Grouping
   const getBorderRadius = () => {
     const defaultRadius = AppleRadii.bubble;
     const tightRadius = 4;
@@ -55,7 +57,12 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
-  const reaction = message.reactions?.[0];
+  const reaction = message.reactions?.[message.reactions.length - 1];
+
+  const handleLongPress = () => {
+    triggerHaptic('medium');
+    onLongPress?.();
+  };
 
   return (
     <View style={styles.outerContainer}>
@@ -67,7 +74,28 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ]}
       >
         <View style={styles.bubbleWrapper}>
-          <View
+          {/* Replied Context Pill */}
+          {message.replyToPreview && (
+            <View
+              style={[
+                styles.replyContextContainer,
+                isOutgoing ? styles.replyOutgoing : styles.replyIncoming,
+              ]}
+            >
+              <Text style={styles.replySenderText}>
+                {message.replyToPreview.senderName}
+              </Text>
+              <Text numberOfLines={1} style={styles.replySnippetText}>
+                {message.replyToPreview.text}
+              </Text>
+            </View>
+          )}
+
+          {/* Core Bubble with Long Press support */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onLongPress={handleLongPress}
+            delayLongPress={280}
             style={[
               styles.bubble,
               { backgroundColor: bubbleBackgroundColor },
@@ -77,7 +105,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             <Text style={[styles.messageText, { color: textColor }]}>
               {message.text}
             </Text>
-          </View>
+
+            {message.isEdited && (
+              <Text
+                style={[
+                  styles.editedTag,
+                  { color: isOutgoing ? 'rgba(255,255,255,0.7)' : AppleColors.secondaryLabelLight },
+                ]}
+              >
+                Edited
+              </Text>
+            )}
+          </TouchableOpacity>
 
           {/* Reaction Tapback Pill */}
           {reaction && (
@@ -149,6 +188,31 @@ const styles = StyleSheet.create({
     position: 'relative',
     maxWidth: '75%',
   },
+  replyContextContainer: {
+    backgroundColor: 'rgba(142, 142, 147, 0.22)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 2,
+    maxWidth: '90%',
+  },
+  replyOutgoing: {
+    alignSelf: 'flex-end',
+  },
+  replyIncoming: {
+    alignSelf: 'flex-start',
+  },
+  replySenderText: {
+    ...AppleTypography.caption2,
+    fontWeight: '600',
+    fontSize: 10,
+    color: AppleColors.systemBlue,
+  },
+  replySnippetText: {
+    ...AppleTypography.caption2,
+    fontSize: 11,
+    opacity: 0.8,
+  },
   bubble: {
     paddingVertical: 7,
     paddingHorizontal: 13,
@@ -157,6 +221,12 @@ const styles = StyleSheet.create({
     ...AppleTypography.body,
     fontSize: 16,
     lineHeight: 21,
+  },
+  editedTag: {
+    ...AppleTypography.caption2,
+    fontSize: 10,
+    marginTop: 2,
+    alignSelf: 'flex-end',
   },
   tapbackBadge: {
     position: 'absolute',

@@ -1,34 +1,55 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
   useColorScheme,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppleColors, AppleTypography, AppleSpacing, AppleRadii } from '../constants/theme';
+import { Message } from '../types';
 
 interface AppleComposerProps {
   onSendMessage: (text: string) => void;
   placeholder?: string;
+  replyingTo?: { message: Message; senderName: string } | null;
+  onCancelReply?: () => void;
+  editingMessage?: Message | null;
+  onSaveEdit?: (newText: string) => void;
+  onCancelEdit?: () => void;
 }
 
 export const AppleComposer: React.FC<AppleComposerProps> = ({
   onSendMessage,
   placeholder = 'iMessage',
+  replyingTo,
+  onCancelReply,
+  editingMessage,
+  onSaveEdit,
+  onCancelEdit,
 }) => {
   const [text, setText] = useState('');
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
 
+  useEffect(() => {
+    if (editingMessage) {
+      setText(editingMessage.text);
+    }
+  }, [editingMessage]);
+
   const canSend = text.trim().length > 0;
 
   const handleSend = () => {
     if (!canSend) return;
+    if (editingMessage && onSaveEdit) {
+      onSaveEdit(text.trim());
+      setText('');
+      return;
+    }
     onSendMessage(text.trim());
     setText('');
   };
@@ -47,83 +68,148 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
         },
       ]}
     >
-      {/* Plus / App Drawer button */}
-      <TouchableOpacity
-        activeOpacity={0.6}
-        style={[
-          styles.actionButton,
-          {
-            backgroundColor: isDark
-              ? AppleColors.secondaryBackgroundDark
-              : '#E9E9EB',
-          },
-        ]}
-        onPress={() => {}}
-      >
-        <Ionicons
-          name="add"
-          size={20}
-          color={isDark ? AppleColors.labelDark : AppleColors.secondaryLabelLight}
-        />
-      </TouchableOpacity>
-
-      {/* Pill-shaped Input Container */}
-      <View
-        style={[
-          styles.inputContainer,
-          {
-            backgroundColor: isDark
-              ? AppleColors.secondaryBackgroundDark
-              : AppleColors.secondaryBackgroundLight,
-            borderColor: isDark
-              ? AppleColors.separatorDark
-              : '#E5E5EA',
-          },
-        ]}
-      >
-        <TextInput
+      {/* Replying Banner */}
+      {replyingTo && (
+        <View
           style={[
-            styles.textInput,
-            { color: isDark ? AppleColors.labelDark : AppleColors.labelLight },
+            styles.bannerContainer,
+            {
+              backgroundColor: isDark
+                ? AppleColors.secondaryBackgroundDark
+                : AppleColors.secondaryBackgroundLight,
+            },
           ]}
-          value={text}
-          onChangeText={setText}
-          placeholder={placeholder}
-          placeholderTextColor={
-            isDark ? AppleColors.secondaryLabelDark : AppleColors.secondaryLabelLight
-          }
-          multiline
-          maxLength={1000}
-          enablesReturnKeyAutomatically
-          returnKeyType="default"
-          blurOnSubmit={false}
-        />
-
-        {/* Audio / Dictation Icon when empty */}
-        {!canSend && (
-          <TouchableOpacity
-            activeOpacity={0.6}
-            style={styles.micButton}
-            onPress={() => {}}
-          >
+        >
+          <View style={styles.bannerTextCol}>
+            <Text style={styles.bannerActionLabel}>
+              Replying to {replyingTo.senderName}
+            </Text>
+            <Text numberOfLines={1} style={styles.bannerSnippet}>
+              {replyingTo.message.text}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={onCancelReply} style={styles.bannerCloseBtn}>
             <Ionicons
-              name="mic"
-              size={19}
+              name="close-circle"
+              size={18}
               color={isDark ? AppleColors.secondaryLabelDark : AppleColors.secondaryLabelLight}
             />
           </TouchableOpacity>
-        )}
+        </View>
+      )}
 
-        {/* Send Arrow Button when has text */}
-        {canSend && (
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={handleSend}
-            style={styles.sendButton}
-          >
-            <Ionicons name="arrow-up" size={17} color="#FFFFFF" />
+      {/* Editing Banner */}
+      {editingMessage && (
+        <View
+          style={[
+            styles.bannerContainer,
+            {
+              backgroundColor: isDark
+                ? AppleColors.secondaryBackgroundDark
+                : AppleColors.secondaryBackgroundLight,
+            },
+          ]}
+        >
+          <View style={styles.bannerTextCol}>
+            <Text style={styles.bannerActionLabel}>Editing Message</Text>
+            <Text numberOfLines={1} style={styles.bannerSnippet}>
+              {editingMessage.text}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={onCancelEdit} style={styles.bannerCloseBtn}>
+            <Ionicons
+              name="close-circle"
+              size={18}
+              color={isDark ? AppleColors.secondaryLabelDark : AppleColors.secondaryLabelLight}
+            />
           </TouchableOpacity>
-        )}
+        </View>
+      )}
+
+      <View style={styles.inputRow}>
+        {/* Plus / App Drawer button */}
+        <TouchableOpacity
+          activeOpacity={0.6}
+          style={[
+            styles.actionButton,
+            {
+              backgroundColor: isDark
+                ? AppleColors.secondaryBackgroundDark
+                : '#E9E9EB',
+            },
+          ]}
+          onPress={() => {}}
+        >
+          <Ionicons
+            name="add"
+            size={20}
+            color={isDark ? AppleColors.labelDark : AppleColors.secondaryLabelLight}
+          />
+        </TouchableOpacity>
+
+        {/* Pill-shaped Input Container */}
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              backgroundColor: isDark
+                ? AppleColors.secondaryBackgroundDark
+                : AppleColors.secondaryBackgroundLight,
+              borderColor: isDark ? AppleColors.separatorDark : '#E5E5EA',
+            },
+          ]}
+        >
+          <TextInput
+            style={[
+              styles.textInput,
+              { color: isDark ? AppleColors.labelDark : AppleColors.labelLight },
+            ]}
+            value={text}
+            onChangeText={setText}
+            placeholder={editingMessage ? 'Edit message' : placeholder}
+            placeholderTextColor={
+              isDark ? AppleColors.secondaryLabelDark : AppleColors.secondaryLabelLight
+            }
+            multiline
+            maxLength={1000}
+            enablesReturnKeyAutomatically
+            returnKeyType="default"
+            blurOnSubmit={false}
+          />
+
+          {/* Audio / Dictation Icon when empty and not editing */}
+          {!canSend && !editingMessage && (
+            <TouchableOpacity
+              activeOpacity={0.6}
+              style={styles.micButton}
+              onPress={() => {}}
+            >
+              <Ionicons
+                name="mic"
+                size={19}
+                color={isDark ? AppleColors.secondaryLabelDark : AppleColors.secondaryLabelLight}
+              />
+            </TouchableOpacity>
+          )}
+
+          {/* Send / Checkmark Arrow Button when has text or editing */}
+          {canSend && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handleSend}
+              style={[
+                styles.sendButton,
+                editingMessage && { backgroundColor: AppleColors.systemGreen },
+              ]}
+            >
+              <Ionicons
+                name={editingMessage ? 'checkmark' : 'arrow-up'}
+                size={17}
+                color="#FFFFFF"
+              />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -131,12 +217,40 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
     paddingHorizontal: AppleSpacing.base,
-    paddingTop: 8,
+    paddingTop: 6,
     paddingBottom: Platform.OS === 'ios' ? 8 : 12,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  bannerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: AppleRadii.sm,
+    marginBottom: 6,
+  },
+  bannerTextCol: {
+    flex: 1,
+    marginRight: 8,
+  },
+  bannerActionLabel: {
+    ...AppleTypography.caption2,
+    fontWeight: '600',
+    color: AppleColors.systemBlue,
+  },
+  bannerSnippet: {
+    ...AppleTypography.caption2,
+    fontSize: 11,
+    opacity: 0.75,
+  },
+  bannerCloseBtn: {
+    padding: 2,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
   },
   actionButton: {
     width: 32,

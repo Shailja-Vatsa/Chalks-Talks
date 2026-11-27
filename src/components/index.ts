@@ -7,3 +7,4 @@ export * from './PinnedConversationItem';
 export * from './AppleSearchBar';
 export * from './AppleComposer';
 export * from './AppleTypingIndicator';
+export * from './AppleTapbackModal';
