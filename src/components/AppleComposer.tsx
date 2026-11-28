@@ -10,26 +10,32 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppleColors, AppleTypography, AppleSpacing, AppleRadii } from '../constants/theme';
-import { Message } from '../types';
+import { Message, Attachment } from '../types';
 
 interface AppleComposerProps {
-  onSendMessage: (text: string) => void;
+  onSendMessage: (text: string, attachment?: Attachment) => void;
+  onPressAttachmentDrawer?: () => void;
   placeholder?: string;
   replyingTo?: { message: Message; senderName: string } | null;
   onCancelReply?: () => void;
   editingMessage?: Message | null;
   onSaveEdit?: (newText: string) => void;
   onCancelEdit?: () => void;
+  pendingAttachment?: Attachment | null;
+  onRemoveAttachment?: () => void;
 }
 
 export const AppleComposer: React.FC<AppleComposerProps> = ({
   onSendMessage,
+  onPressAttachmentDrawer,
   placeholder = 'iMessage',
   replyingTo,
   onCancelReply,
   editingMessage,
   onSaveEdit,
   onCancelEdit,
+  pendingAttachment,
+  onRemoveAttachment,
 }) => {
   const [text, setText] = useState('');
   const colorScheme = useColorScheme();
@@ -41,7 +47,7 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
     }
   }, [editingMessage]);
 
-  const canSend = text.trim().length > 0;
+  const canSend = text.trim().length > 0 || !!pendingAttachment;
 
   const handleSend = () => {
     if (!canSend) return;
@@ -50,8 +56,9 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
       setText('');
       return;
     }
-    onSendMessage(text.trim());
+    onSendMessage(text.trim(), pendingAttachment || undefined);
     setText('');
+    onRemoveAttachment?.();
   };
 
   return (
@@ -126,6 +133,46 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
         </View>
       )}
 
+      {/* Staged Attachment Badge */}
+      {pendingAttachment && (
+        <View
+          style={[
+            styles.bannerContainer,
+            {
+              backgroundColor: isDark
+                ? AppleColors.secondaryBackgroundDark
+                : AppleColors.secondaryBackgroundLight,
+            },
+          ]}
+        >
+          <Ionicons
+            name={
+              pendingAttachment.type === 'image'
+                ? 'image'
+                : pendingAttachment.type === 'video'
+                ? 'videocam'
+                : pendingAttachment.type === 'document'
+                ? 'document'
+                : 'mic'
+            }
+            size={18}
+            color={AppleColors.systemBlue}
+          />
+          <View style={[styles.bannerTextCol, { marginLeft: 8 }]}>
+            <Text numberOfLines={1} style={styles.bannerActionLabel}>
+              {pendingAttachment.name || pendingAttachment.type}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={onRemoveAttachment} style={styles.bannerCloseBtn}>
+            <Ionicons
+              name="close-circle"
+              size={18}
+              color={isDark ? AppleColors.secondaryLabelDark : AppleColors.secondaryLabelLight}
+            />
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.inputRow}>
         {/* Plus / App Drawer button */}
         <TouchableOpacity
@@ -138,7 +185,7 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
                 : '#E9E9EB',
             },
           ]}
-          onPress={() => {}}
+          onPress={onPressAttachmentDrawer}
         >
           <Ionicons
             name="add"
@@ -182,7 +229,7 @@ export const AppleComposer: React.FC<AppleComposerProps> = ({
             <TouchableOpacity
               activeOpacity={0.6}
               style={styles.micButton}
-              onPress={() => {}}
+              onPress={onPressAttachmentDrawer}
             >
               <Ionicons
                 name="mic"

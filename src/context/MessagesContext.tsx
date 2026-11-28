@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { Contact, Conversation, Message, MessageReactionType, MessageStatus } from '../types';
+import { Contact, Conversation, Message, MessageReactionType, MessageStatus, Attachment, LinkPreview } from '../types';
 import { storageService } from '../services/storage';
 
 interface MessagesContextType {
@@ -16,8 +16,14 @@ interface MessagesContextType {
       simulateReply?: boolean;
       replyToMessageId?: string;
       replyToPreview?: { text: string; senderName: string };
+      attachment?: Attachment;
+      linkPreview?: LinkPreview;
     }
   ) => Promise<void>;
+  createConversation: (participantIds: string[], title?: string) => Promise<Conversation>;
+  updateConversationDetails: (convId: string, updates: Partial<Conversation>) => Promise<void>;
+  addParticipant: (convId: string, contactId: string) => Promise<void>;
+  removeParticipant: (convId: string, contactId: string) => Promise<void>;
   editMessage: (convId: string, messageId: string, newText: string) => Promise<void>;
   deleteMessage: (convId: string, messageId: string) => Promise<void>;
   toggleReaction: (convId: string, messageId: string, type: MessageReactionType) => Promise<void>;
@@ -36,6 +42,33 @@ const SIMULATED_RESPONSES = [
   'Got it. I will sync with design and follow up shortly.',
   'Looks fantastic! Looking forward to testing it out on device.',
 ];
+
+const parsePotentialLink = (text: string): LinkPreview | undefined => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const match = text.match(urlRegex);
+  if (!match) return undefined;
+
+  const url = match[0];
+  try {
+    const domain = url.replace('https://', '').replace('http://', '').split('/')[0];
+    if (domain.includes('apple.com')) {
+      return {
+        url,
+        domain: 'apple.com',
+        title: 'Apple — Experience innovation and design',
+        imageUrl: 'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?w=600&auto=format&fit=crop&q=80',
+      };
+    }
+    return {
+      url,
+      domain,
+      title: `${domain.charAt(0).toUpperCase() + domain.slice(1)} — Official Website`,
+      imageUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=600&auto=format&fit=crop&q=80',
+    };
+  } catch {
+    return undefined;
+  }
+};
 
 export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -87,6 +120,47 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setConversations(updatedConvs);
   };
 
+  const createConversation = async (participantIds: string[], title?: string): Promise<Conversation> => {
+    const isGroup = participantIds.length > 1;
+    const newConv: Conversation = {
+      id: `conv-${Date.now()}`,
+      title: title || (isGroup ? 'New Group' : undefined),
+      participantIds,
+      isGroup,
+      isPinned: false,
+      unreadCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const currentConvs = await storageService.getConversations();
+    const updated = [newConv, ...currentConvs];
+    await storageService.saveConversations(updated);
+    setConversations(updated);
+    return newConv;
+  };
+
+  const updateConversationDetails = async (convId: string, updates: Partial<Conversation>) => {
+    await storageService.updateConversation(convId, updates);
+    const updatedConvs = await storageService.getConversations();
+    setConversations(updatedConvs);
+    notifyListeners(convId);
+  };
+
+  const addParticipant = async (convId: string, contactId: string) => {
+    await storageService.addParticipantToGroup(convId, contactId);
+    const updatedConvs = await storageService.getConversations();
+    setConversations(updatedConvs);
+    notifyListeners(convId);
+  };
+
+  const removeParticipant = async (convId: string, contactId: string) => {
+    await storageService.removeParticipantFromGroup(convId, contactId);
+    const updatedConvs = await storageService.getConversations();
+    setConversations(updatedConvs);
+    notifyListeners(convId);
+  };
+
   const sendMessage = async (
     convId: string,
     text: string,
@@ -94,10 +168,13 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       simulateReply?: boolean;
       replyToMessageId?: string;
       replyToPreview?: { text: string; senderName: string };
+      attachment?: Attachment;
+      linkPreview?: LinkPreview;
     } = { simulateReply: true }
   ) => {
     const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-    
+    const detectedLink = options.linkPreview || parsePotentialLink(text);
+
     const initialMessage: Message = {
       id: messageId,
       conversationId: convId,
@@ -108,6 +185,8 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       isIncoming: false,
       replyToMessageId: options.replyToMessageId,
       replyToPreview: options.replyToPreview,
+      attachments: options.attachment ? [options.attachment] : undefined,
+      linkPreview: detectedLink,
     };
 
     await storageService.saveMessage(convId, initialMessage);
@@ -194,6 +273,10 @@ export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         getContactById,
         getConversationMessages,
         sendMessage,
+        createConversation,
+        updateConversationDetails,
+        addParticipant,
+        removeParticipant,
         editMessage,
         deleteMessage,
         toggleReaction,

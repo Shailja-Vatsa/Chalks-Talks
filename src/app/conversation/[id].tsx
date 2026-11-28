@@ -12,12 +12,15 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useMessages } from '../../context/MessagesContext';
-import { Message, MessageReactionType } from '../../types';
+import { Message, MessageReactionType, Attachment, Contact } from '../../types';
 import { MessageBubble } from '../../components/MessageBubble';
 import { Avatar } from '../../components/Avatar';
+import { GroupAvatar } from '../../components/GroupAvatar';
 import { AppleComposer } from '../../components/AppleComposer';
 import { AppleTypingIndicator } from '../../components/AppleTypingIndicator';
 import { AppleTapbackModal } from '../../components/AppleTapbackModal';
+import { AppleAttachmentDrawer } from '../../components/AppleAttachmentDrawer';
+import { AppleMediaViewer } from '../../components/AppleMediaViewer';
 import { AppleColors, AppleTypography, AppleSpacing } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -25,6 +28,8 @@ interface MessageGroupItem {
   type: 'date' | 'message';
   dateLabel?: string;
   message?: Message;
+  senderName?: string;
+  showSenderHeader?: boolean;
   isFirstInGroup?: boolean;
   isLastInGroup?: boolean;
   showStatus?: boolean;
@@ -49,20 +54,31 @@ export default function ConversationScreen() {
   } = useMessages();
 
   const conversation = conversations.find((c) => c.id === id);
-  const participant = conversation?.participantIds[0]
-    ? getContactById(conversation.participantIds[0])
-    : undefined;
+  const isGroup = conversation?.isGroup || (conversation?.participantIds && conversation.participantIds.length > 1);
+
+  const participants: Contact[] = (conversation?.participantIds || [])
+    .map((pid) => getContactById(pid))
+    .filter((c): c is Contact => !!c);
+
+  const primaryContact = participants[0];
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedMessageForAction, setSelectedMessageForAction] = useState<Message | null>(null);
   const [replyingTo, setReplyingTo] = useState<{ message: Message; senderName: string } | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
 
+  // Rich Media State
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [stagedAttachment, setStagedAttachment] = useState<Attachment | null>(null);
+  const [viewingAttachment, setViewingAttachment] = useState<Attachment | null>(null);
+
   const flatListRef = useRef<FlatList>(null);
 
-  const title = conversation?.title || participant?.fullName || 'Messages';
-  const initials = participant?.initials || title.substring(0, 2).toUpperCase();
-  const avatarColor = participant?.color || AppleColors.avatarColors[0];
+  const title =
+    conversation?.title ||
+    (isGroup
+      ? participants.map((p) => p.firstName).join(', ')
+      : primaryContact?.fullName || 'Messages');
 
   const isContactTyping = activeTypingConvId === id;
 
@@ -90,7 +106,7 @@ export default function ConversationScreen() {
     };
   }, [id, loadMessages, markConversationAsRead, onMessagesChange]);
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, attachment?: Attachment) => {
     if (!id) return;
     const replyOptions = replyingTo
       ? {
@@ -100,10 +116,15 @@ export default function ConversationScreen() {
             senderName: replyingTo.senderName,
           },
         }
-      : undefined;
+      : {};
 
     setReplyingTo(null);
-    await sendMessage(id, text, replyOptions);
+    setStagedAttachment(null);
+
+    await sendMessage(id, text, {
+      ...replyOptions,
+      attachment,
+    });
     await loadMessages();
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
@@ -118,14 +139,14 @@ export default function ConversationScreen() {
 
   const handleCopyMessage = () => {
     if (!selectedMessageForAction) return;
-    // Native Alert confirmation on both platforms
     Alert.alert('Copied to Clipboard', `"${selectedMessageForAction.text}"`);
   };
 
   const handleReplyMessage = () => {
     if (!selectedMessageForAction) return;
+    const sender = getContactById(selectedMessageForAction.senderId);
     const senderName = selectedMessageForAction.isIncoming
-      ? participant?.firstName || 'Contact'
+      ? sender?.firstName || 'Contact'
       : 'You';
     setReplyingTo({
       message: selectedMessageForAction,
@@ -149,6 +170,18 @@ export default function ConversationScreen() {
     if (!id || !selectedMessageForAction) return;
     await deleteMessage(id, selectedMessageForAction.id);
     await loadMessages();
+  };
+
+  const handleSendSimulatedAudio = async () => {
+    if (!id) return;
+    const audioAttachment: Attachment = {
+      id: `audio-${Date.now()}`,
+      type: 'audio',
+      uri: 'simulated_audio.m4a',
+      name: 'Audio Message',
+      duration: 4,
+    };
+    await handleSendMessage('', audioAttachment);
   };
 
   const formatSeparatorDate = (timestamp: number) => {
@@ -182,15 +215,21 @@ export default function ConversationScreen() {
       lastTimestamp = current.timestamp;
     }
 
+    const senderContact = getContactById(current.senderId);
+    const senderName = senderContact?.firstName || 'Unknown';
+
     const isFirstInGroup =
       !prev || prev.senderId !== current.senderId || current.timestamp - prev.timestamp > 5 * 60 * 1000;
     const isLastInGroup =
       !next || next.senderId !== current.senderId || next.timestamp - current.timestamp > 5 * 60 * 1000;
     const showStatus = i === messages.length - 1;
+    const showSenderHeader = isGroup && isFirstInGroup && current.isIncoming;
 
     groupItems.push({
       type: 'message',
       message: current,
+      senderName,
+      showSenderHeader,
       isFirstInGroup,
       isLastInGroup,
       showStatus,
@@ -214,11 +253,15 @@ export default function ConversationScreen() {
               onPress={() => router.push(`/conversation/details?id=${id}`)}
               style={styles.headerTitleButton}
             >
-              <Avatar
-                initials={initials}
-                size={34}
-                backgroundColor={avatarColor}
-              />
+              {isGroup ? (
+                <GroupAvatar participants={participants} size={34} />
+              ) : (
+                <Avatar
+                  initials={primaryContact?.initials || 'ME'}
+                  size={34}
+                  backgroundColor={primaryContact?.color || AppleColors.avatarColors[0]}
+                />
+              )}
               <View style={styles.titleWithChevron}>
                 <Text
                   style={[
@@ -288,10 +331,13 @@ export default function ConversationScreen() {
             return (
               <MessageBubble
                 message={item.message}
+                senderName={item.senderName}
+                showSenderHeader={item.showSenderHeader}
                 isFirstInGroup={item.isFirstInGroup}
                 isLastInGroup={item.isLastInGroup}
                 showStatus={item.showStatus}
                 onLongPress={() => setSelectedMessageForAction(item.message!)}
+                onPressAttachment={(att) => setViewingAttachment(att)}
               />
             );
           }
@@ -320,14 +366,33 @@ export default function ConversationScreen() {
         onDelete={handleDeleteMessage}
       />
 
-      {/* iOS Composer supporting reply banner and edit mode */}
+      {/* Attachment Drawer Modal */}
+      <AppleAttachmentDrawer
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+        onSelectAttachment={(att) => setStagedAttachment(att)}
+        onSendSimulatedAudio={handleSendSimulatedAudio}
+        onInsertEmoji={(emoji) => handleSendMessage(emoji)}
+      />
+
+      {/* Full-screen Media Viewer */}
+      <AppleMediaViewer
+        visible={!!viewingAttachment}
+        attachment={viewingAttachment}
+        onClose={() => setViewingAttachment(null)}
+      />
+
+      {/* iOS Composer supporting rich attachments */}
       <AppleComposer
         onSendMessage={handleSendMessage}
+        onPressAttachmentDrawer={() => setDrawerVisible(true)}
         replyingTo={replyingTo}
         onCancelReply={() => setReplyingTo(null)}
         editingMessage={editingMessage}
         onSaveEdit={handleSaveEdit}
         onCancelEdit={() => setEditingMessage(null)}
+        pendingAttachment={stagedAttachment}
+        onRemoveAttachment={() => setStagedAttachment(null)}
       />
     </KeyboardAvoidingView>
   );

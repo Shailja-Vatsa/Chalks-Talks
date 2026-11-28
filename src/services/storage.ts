@@ -56,6 +56,48 @@ class StorageService {
     }
   }
 
+  async updateConversation(conversationId: string, updates: Partial<Conversation>): Promise<void> {
+    try {
+      const convs = await this.getConversations();
+      const updated = convs.map((c) => (c.id === conversationId ? { ...c, ...updates } : c));
+      await AsyncStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to update conversation:', e);
+    }
+  }
+
+  async addParticipantToGroup(conversationId: string, contactId: string): Promise<void> {
+    try {
+      const convs = await this.getConversations();
+      const updated = convs.map((c) => {
+        if (c.id === conversationId) {
+          const participantIds = Array.from(new Set([...c.participantIds, contactId]));
+          return { ...c, participantIds, isGroup: true };
+        }
+        return c;
+      });
+      await AsyncStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to add participant to group:', e);
+    }
+  }
+
+  async removeParticipantFromGroup(conversationId: string, contactId: string): Promise<void> {
+    try {
+      const convs = await this.getConversations();
+      const updated = convs.map((c) => {
+        if (c.id === conversationId) {
+          const participantIds = c.participantIds.filter((id) => id !== contactId);
+          return { ...c, participantIds };
+        }
+        return c;
+      });
+      await AsyncStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(updated));
+    } catch (e) {
+      console.error('Failed to remove participant from group:', e);
+    }
+  }
+
   async getMessages(conversationId: string): Promise<Message[]> {
     try {
       const data = await AsyncStorage.getItem(STORAGE_KEYS.MESSAGES);
@@ -89,7 +131,7 @@ class StorageService {
             ...c,
             updatedAt: message.timestamp,
             lastMessage: {
-              text: message.text,
+              text: message.text || (message.attachments ? `Attachment: ${message.attachments[0].type}` : 'Message'),
               timestamp: message.timestamp,
               isIncoming: message.isIncoming,
               senderId: message.senderId,
@@ -109,7 +151,7 @@ class StorageService {
           createdAt: message.timestamp,
           updatedAt: message.timestamp,
           lastMessage: {
-            text: message.text,
+            text: message.text || (message.attachments ? `Attachment: ${message.attachments[0].type}` : 'Message'),
             timestamp: message.timestamp,
             isIncoming: message.isIncoming,
             senderId: message.senderId,
@@ -144,7 +186,6 @@ class StorageService {
 
       await AsyncStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(allMessages));
 
-      // Also update last message if the edited message was the latest
       const lastMsg = convList[convList.length - 1];
       if (lastMsg && lastMsg.id === messageId) {
         const convs = await this.getConversations();
@@ -179,7 +220,6 @@ class StorageService {
 
       await AsyncStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(allMessages));
 
-      // Update conversation preview if the deleted one was the last message
       const convs = await this.getConversations();
       const updatedConvs = convs.map((c) => {
         if (c.id === conversationId) {
@@ -224,14 +264,11 @@ class StorageService {
 
         if (existingIndex >= 0) {
           if (reactions[existingIndex].type === type) {
-            // Tap same reaction to remove it (toggle off)
             reactions.splice(existingIndex, 1);
           } else {
-            // Replace reaction with new type
             reactions[existingIndex] = { userId, type, timestamp: Date.now() };
           }
         } else {
-          // Add new reaction
           reactions.push({ userId, type, timestamp: Date.now() });
         }
 

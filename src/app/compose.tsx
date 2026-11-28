@@ -8,7 +8,7 @@ import {
   FlatList,
   useColorScheme,
   SafeAreaView,
-  Platform,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useMessages } from '../context/MessagesContext';
@@ -16,19 +16,22 @@ import { Avatar } from '../components/Avatar';
 import { AppleComposer } from '../components/AppleComposer';
 import { AppleColors, AppleTypography, AppleSpacing, AppleRadii } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { Contact } from '../types';
+import { Contact, Attachment } from '../types';
 
 export default function ComposeScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { contacts, conversations, sendMessage } = useMessages();
+  const { contacts, conversations, createConversation, sendMessage } = useMessages();
 
   const [toInput, setToInput] = useState('');
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [selectedRecipients, setSelectedRecipients] = useState<Contact[]>([]);
 
   const filteredContacts = contacts.filter((c) => {
     if (!toInput.trim()) return false;
+    // Don't show already selected recipients in search results
+    if (selectedRecipients.some((r) => r.id === c.id)) return false;
+
     const query = toInput.toLowerCase();
     return (
       c.fullName.toLowerCase().includes(query) ||
@@ -38,21 +41,35 @@ export default function ComposeScreen() {
   });
 
   const handleSelectContact = (contact: Contact) => {
-    setSelectedContact(contact);
+    setSelectedRecipients([...selectedRecipients, contact]);
     setToInput('');
   };
 
-  const handleSendMessage = async (text: string) => {
-    if (!selectedContact) return;
+  const handleRemoveRecipient = (contactId: string) => {
+    setSelectedRecipients(selectedRecipients.filter((c) => c.id !== contactId));
+  };
 
-    // Find if an existing conversation with this contact exists
-    const existing = conversations.find(
-      (c) => !c.isGroup && c.participantIds.includes(selectedContact.id)
-    );
+  const handleSendMessage = async (text: string, attachment?: Attachment) => {
+    if (selectedRecipients.length === 0) return;
 
-    const targetConvId = existing ? existing.id : `conv-${Date.now()}`;
-    await sendMessage(targetConvId, text);
-    router.replace(`/conversation/${targetConvId}`);
+    const participantIds = selectedRecipients.map((r) => r.id);
+
+    // If 1 recipient, check if 1:1 conversation already exists
+    if (participantIds.length === 1) {
+      const existing = conversations.find(
+        (c) => !c.isGroup && c.participantIds.includes(participantIds[0])
+      );
+
+      const targetConvId = existing ? existing.id : `conv-${Date.now()}`;
+      await sendMessage(targetConvId, text, { attachment });
+      router.replace(`/conversation/${targetConvId}`);
+    } else {
+      // Group conversation
+      const groupTitle = selectedRecipients.map((r) => r.firstName).join(', ');
+      const newGroup = await createConversation(participantIds, groupTitle);
+      await sendMessage(newGroup.id, text, { attachment });
+      router.replace(`/conversation/${newGroup.id}`);
+    }
   };
 
   return (
@@ -86,12 +103,12 @@ export default function ComposeScreen() {
             { color: isDark ? AppleColors.labelDark : AppleColors.labelLight },
           ]}
         >
-          New Message
+          {selectedRecipients.length > 1 ? 'New Group' : 'New Message'}
         </Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      {/* "To:" Recipient Field */}
+      {/* "To:" Multi-Recipient Field */}
       <View
         style={[
           styles.recipientRow,
@@ -115,29 +132,37 @@ export default function ComposeScreen() {
           To:
         </Text>
 
-        {selectedContact ? (
-          <TouchableOpacity
-            style={styles.selectedPill}
-            onPress={() => setSelectedContact(null)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.selectedPillText}>{selectedContact.fullName}</Text>
-          </TouchableOpacity>
-        ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.pillsScroll}
+        >
+          {selectedRecipients.map((recipient) => (
+            <TouchableOpacity
+              key={recipient.id}
+              style={styles.selectedPill}
+              onPress={() => handleRemoveRecipient(recipient.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.selectedPillText}>{recipient.firstName}</Text>
+              <Ionicons name="close" size={13} color={AppleColors.systemBlue} style={styles.pillClose} />
+            </TouchableOpacity>
+          ))}
+
           <TextInput
             style={[
               styles.toInput,
               { color: isDark ? AppleColors.labelDark : AppleColors.labelLight },
             ]}
-            placeholder="Name, number, or email"
+            placeholder={selectedRecipients.length === 0 ? 'Name, number, or email' : 'Add another'}
             placeholderTextColor={
               isDark ? AppleColors.tertiaryLabelDark : AppleColors.tertiaryLabelLight
             }
             value={toInput}
             onChangeText={setToInput}
-            autoFocus
+            autoFocus={selectedRecipients.length === 0}
           />
-        )}
+        </ScrollView>
 
         <TouchableOpacity
           onPress={() => {}}
@@ -148,9 +173,9 @@ export default function ComposeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Suggested Contact List */}
+      {/* Suggested & Filtered Contact List */}
       <View style={styles.contentArea}>
-        {!selectedContact && toInput.trim().length > 0 && (
+        {toInput.trim().length > 0 ? (
           <FlatList
             data={filteredContacts}
             keyExtractor={(item) => item.id}
@@ -197,10 +222,7 @@ export default function ComposeScreen() {
               </TouchableOpacity>
             )}
           />
-        )}
-
-        {/* Empty placeholder helper */}
-        {!selectedContact && !toInput.trim() && (
+        ) : (
           <View style={styles.contactsPrompt}>
             <Text
               style={[
@@ -210,33 +232,47 @@ export default function ComposeScreen() {
             >
               Suggested Contacts
             </Text>
-            {contacts.slice(0, 4).map((c) => (
-              <TouchableOpacity
-                key={c.id}
-                style={styles.suggestedRow}
-                onPress={() => handleSelectContact(c)}
-                activeOpacity={0.6}
-              >
-                <Avatar initials={c.initials} size={32} backgroundColor={c.color} />
-                <Text
-                  style={[
-                    styles.suggestedName,
-                    { color: isDark ? AppleColors.labelDark : AppleColors.labelLight },
-                  ]}
+            {contacts
+              .filter((c) => !selectedRecipients.some((r) => r.id === c.id))
+              .slice(0, 5)
+              .map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.suggestedRow}
+                  onPress={() => handleSelectContact(c)}
+                  activeOpacity={0.6}
                 >
-                  {c.fullName}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Avatar initials={c.initials} size={34} backgroundColor={c.color} />
+                  <View style={styles.suggestedMeta}>
+                    <Text
+                      style={[
+                        styles.suggestedName,
+                        { color: isDark ? AppleColors.labelDark : AppleColors.labelLight },
+                      ]}
+                    >
+                      {c.fullName}
+                    </Text>
+                    {c.phone && (
+                      <Text style={[styles.suggestedPhone, { color: AppleColors.secondaryLabelLight }]}>
+                        {c.phone}
+                      </Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
           </View>
         )}
       </View>
 
       {/* Bottom Composer */}
-      {selectedContact && (
+      {selectedRecipients.length > 0 && (
         <AppleComposer
           onSendMessage={handleSendMessage}
-          placeholder={`iMessage to ${selectedContact.firstName}`}
+          placeholder={
+            selectedRecipients.length === 1
+              ? `iMessage to ${selectedRecipients[0].firstName}`
+              : `iMessage to ${selectedRecipients.length} people`
+          }
         />
       )}
     </SafeAreaView>
@@ -280,26 +316,36 @@ const styles = StyleSheet.create({
   toLabel: {
     ...AppleTypography.body,
     fontSize: 16,
-    marginRight: 8,
+    marginRight: 6,
+  },
+  pillsScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexGrow: 1,
   },
   toInput: {
-    flex: 1,
+    minWidth: 120,
     ...AppleTypography.body,
     fontSize: 16,
     paddingVertical: 2,
   },
   selectedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(0, 122, 255, 0.12)',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: AppleRadii.pill,
-    marginRight: 8,
+    marginRight: 6,
   },
   selectedPillText: {
     ...AppleTypography.body,
     color: AppleColors.systemBlue,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
+  },
+  pillClose: {
+    marginLeft: 3,
   },
   plusContactButton: {
     padding: 2,
@@ -343,9 +389,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
   },
+  suggestedMeta: {
+    marginLeft: AppleSpacing.md,
+  },
   suggestedName: {
     ...AppleTypography.body,
     fontSize: 16,
-    marginLeft: AppleSpacing.md,
+  },
+  suggestedPhone: {
+    ...AppleTypography.caption2,
+    marginTop: 2,
   },
 });

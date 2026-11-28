@@ -1,4 +1,5 @@
 export * from './Avatar';
+export * from './GroupAvatar';
 export * from './AppleIcon';
 export * from './AppleButton';
 export * from './MessageBubble';
@@ -8,3 +9,5 @@ export * from './AppleSearchBar';
 export * from './AppleComposer';
 export * from './AppleTypingIndicator';
 export * from './AppleTapbackModal';
+export * from './AppleAttachmentDrawer';
+export * from './AppleMediaViewer';

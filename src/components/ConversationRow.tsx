@@ -2,28 +2,37 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { Conversation, Contact } from '../types';
 import { Avatar } from './Avatar';
+import { GroupAvatar } from './GroupAvatar';
 import { AppleColors, AppleTypography, AppleSpacing } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ConversationRowProps {
   conversation: Conversation;
   participant?: Contact;
+  allParticipants?: Contact[];
   onPress: () => void;
 }
 
 export const ConversationRow: React.FC<ConversationRowProps> = ({
   conversation,
   participant,
+  allParticipants = [],
   onPress,
 }) => {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
 
+  const isGroup = conversation.isGroup || conversation.participantIds.length > 1;
+
   const title =
     conversation.title ||
-    (participant ? participant.fullName : 'Unknown');
+    (isGroup
+      ? allParticipants.map((p) => p.firstName).join(', ')
+      : participant
+      ? participant.fullName
+      : 'Unknown');
 
-  const initials = participant?.initials || (title.substring(0, 2).toUpperCase());
+  const initials = participant?.initials || title.substring(0, 2).toUpperCase();
   const avatarColor = participant?.color || AppleColors.avatarColors[0];
 
   const formatTimestamp = (timestamp?: number) => {
@@ -52,11 +61,11 @@ export const ConversationRow: React.FC<ConversationRowProps> = ({
     >
       <View style={styles.avatarContainer}>
         {conversation.unreadCount > 0 && <View style={styles.unreadDot} />}
-        <Avatar
-          initials={initials}
-          size={50}
-          backgroundColor={avatarColor}
-        />
+        {isGroup ? (
+          <GroupAvatar participants={allParticipants} size={50} />
+        ) : (
+          <Avatar initials={initials} size={50} backgroundColor={avatarColor} />
+        )}
       </View>
 
       <View

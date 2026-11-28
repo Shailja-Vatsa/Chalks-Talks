@@ -17,6 +17,7 @@ import { AppleSearchBar } from '../components/AppleSearchBar';
 import { AppleButton } from '../components/AppleButton';
 import { AppleIcon } from '../components/AppleIcon';
 import { AppleColors, AppleTypography, AppleSpacing } from '../constants/theme';
+import { Contact } from '../types';
 
 export default function MessagesIndexScreen() {
   const router = useRouter();
@@ -39,9 +40,8 @@ export default function MessagesIndexScreen() {
     );
   }
 
-  // Filter pinned & regular conversations
   const pinnedConversations = conversations.filter((c) => c.isPinned);
-  
+
   const filteredConversations = conversations.filter((c) => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -99,7 +99,6 @@ export default function MessagesIndexScreen() {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={() => (
           <>
-            {/* Pinned conversations row when not searching */}
             {!searchQuery && pinnedConversations.length > 0 && (
               <View style={styles.pinnedSection}>
                 <ScrollView
@@ -140,10 +139,15 @@ export default function MessagesIndexScreen() {
             ? getContactById(item.participantIds[0])
             : undefined;
 
+          const allParticipants: Contact[] = item.participantIds
+            .map((pid) => getContactById(pid))
+            .filter((c): c is Contact => !!c);
+
           return (
             <ConversationRow
               conversation={item}
               participant={participant}
+              allParticipants={allParticipants}
               onPress={() => {
                 router.push(`/conversation/${item.id}`);
               }}

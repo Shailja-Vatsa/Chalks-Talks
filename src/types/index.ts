@@ -21,14 +21,38 @@ export interface MessageReaction {
 
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
+export type AttachmentType = 'image' | 'video' | 'document' | 'audio';
+
+export interface Attachment {
+  id: string;
+  type: AttachmentType;
+  uri: string;
+  name?: string;
+  size?: number;
+  mimeType?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  domain: string;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
-  senderId: string; // 'me' for local user
+  senderId: string; // 'me' or contact-id
   text: string;
   timestamp: number;
   status: MessageStatus;
   isIncoming: boolean;
+  attachments?: Attachment[];
+  linkPreview?: LinkPreview;
   reactions?: MessageReaction[];
   replyToMessageId?: string;
   replyToPreview?: {
@@ -42,6 +66,7 @@ export interface Message {
 export interface Conversation {
   id: string;
   title?: string;
+  avatarUrl?: string;
   participantIds: string[];
   isGroup: boolean;
   isPinned: boolean;
